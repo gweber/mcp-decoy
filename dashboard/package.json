@@ -1,0 +1,21 @@
+{
+  "name": "mcp-decoy-dashboard",
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.33",
+    "pinia": "^3.0.4",
+    "vue-router": "^5.0.6",
+    "chart.js": "^4.5.1",
+    "vue-chartjs": "^5.3.3"
+  },
+  "devDependencies": {
+    "vite": "^8.0.9",
+    "@vitejs/plugin-vue": "^6.0.6"
+  }
+}
