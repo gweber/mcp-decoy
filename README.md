@@ -1,6 +1,6 @@
 # MCP Decoy Server
 
-![Node.js 24+](https://img.shields.io/badge/Node.js-24%2B-339933?logo=node.js&logoColor=white)
+![Node.js 26+](https://img.shields.io/badge/Node.js-26%2B-339933?logo=node.js&logoColor=white)
 ![MCP 2024-11-05](https://img.shields.io/badge/MCP-2024--11--05-6B46C1)
 ![Tests 111 passing](https://img.shields.io/badge/tests-111%20passing-brightgreen)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue)
