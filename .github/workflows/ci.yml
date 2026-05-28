@@ -29,6 +29,9 @@ jobs:
       - name: Run server tests
         run: npm test
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
       - name: Install dashboard dependencies
         working-directory: dashboard
         run: npm ci
@@ -36,3 +39,10 @@ jobs:
       - name: Build dashboard
         working-directory: dashboard
         run: npm run build
+
+      - name: Audit dashboard production dependencies
+        working-directory: dashboard
+        run: npm audit --omit=dev
+
+      - name: Build Docker image
+        run: docker build -t mcp-decoy:ci .

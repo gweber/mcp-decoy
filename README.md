@@ -85,6 +85,10 @@ All configuration is via environment variables. The server runs with safe defaul
 |---|---|---|
 | `PORT` | `3110` | TCP port the Express server binds to |
 | `SERVER_NAME` | `enterprise-integrations` | MCP `serverInfo.name` sent to clients during handshake |
+| `STORE_BACKEND` | `sqlite` | Log storage backend. Use `memory` for non-durable lab runs |
+| `SQLITE_PATH` | `./data/mcp-decoy.db` | SQLite database path when `STORE_BACKEND=sqlite` |
+| `LOG_RETENTION_DAYS` | `90` | SQLite retention window in days. Older records are pruned on startup and can be pruned programmatically |
+| `LOG_MAX_SIZE` | `10000` | Maximum retained log records. For SQLite this caps records after each insert; for memory this caps the in-memory ring buffer |
 | `SYSLOG_HOST` | _(unset)_ | Syslog destination hostname or IP. Syslog forwarding is **disabled** when unset |
 | `SYSLOG_PORT` | `514` | Syslog destination port |
 | `SYSLOG_PROTOCOL` | `udp` | Transport: `udp` or `tcp` |
@@ -290,8 +294,21 @@ MCP Decoy is intentionally designed as a deception endpoint. Treat it like an ex
 - Do **not** configure it with real credentials or connect it to production data stores. All tool responses should remain fake/decoy data.
 - The dashboard and HTTP API do not implement authentication. Put the service behind a trusted reverse proxy, VPN, firewall rule, or lab network boundary before exposing it beyond localhost.
 - `X-Forwarded-For` is used for source IP attribution. Only trust that field when the service is behind a proxy you control.
-- Logs are stored in memory with a circular buffer. Forward to syslog/SIEM if you need durable evidence.
+- Logs are stored in SQLite by default with configurable retention. Forward to syslog/SIEM if you need centralized evidence.
 - Review local laws, internal policies, and consent requirements before deploying deception systems in shared or customer environments.
+
+## SQLite Persistence
+
+By default, MCP Decoy keeps logs in a local SQLite database with 90-day retention. For an explicit durable local setup:
+
+```bash
+STORE_BACKEND=sqlite \
+SQLITE_PATH=./data/mcp-decoy.db \
+LOG_RETENTION_DAYS=90 \
+npm start
+```
+
+SQLite mode creates the database directory automatically, stores complete event JSON, and keeps indexes for time, IP, tool, and MCP method queries. Retention defaults to **90 days** and is applied on startup; `LOG_MAX_SIZE` still caps the maximum number of retained rows after each insert.
 
 ## Syslog Integration
 

@@ -7,8 +7,16 @@ services:
     environment:
       PORT: "3110"
       SERVER_NAME: "enterprise-integrations"
+      STORE_BACKEND: "sqlite"
+      SQLITE_PATH: "/data/mcp-decoy.db"
+      LOG_RETENTION_DAYS: "90"
       SYSLOG_HOST: "${SYSLOG_HOST:-}"
       SYSLOG_PORT: "${SYSLOG_PORT:-514}"
       SYSLOG_PROTOCOL: "${SYSLOG_PROTOCOL:-udp}"
       SYSLOG_APP_NAME: "mcp-decoy"
+    volumes:
+      - mcp-decoy-data:/data
     restart: unless-stopped
+
+volumes:
+  mcp-decoy-data:

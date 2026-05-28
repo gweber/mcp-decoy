@@ -4,3 +4,7 @@ dashboard/dist/
 *.log
 .env
 .env.local
+data/
+*.db
+*.db-shm
+*.db-wal

@@ -1,79 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import LogStore from '../store.js';
 
-// Each test gets a fresh store instance
-function makeStore() {
-  const { LogStore: LS } = (() => {
-    const { EventEmitter } = require('events');
-    const { v4: uuidv4 } = require('uuid');
-    class LogStore extends EventEmitter {
-      constructor(maxSize = 10_000) {
-        super();
-        this.setMaxListeners(50);
-        this.maxSize = maxSize;
-        this._logs = [];
-      }
-      add(fields) {
-        const record = { id: uuidv4(), time: new Date().toISOString(), ...fields };
-        this._logs.push(record);
-        if (this._logs.length > this.maxSize) this._logs.shift();
-        this.emit('log', record);
-        return record;
-      }
-      query({ limit = 100, offset = 0, ip, tool, mcp_method, from, to } = {}) {
-        let results = this._logs;
-        if (ip)         results = results.filter(l => l.ip === ip);
-        if (tool)       results = results.filter(l => l.tool === tool);
-        if (mcp_method) results = results.filter(l => l.mcp_method === mcp_method);
-        if (from)       results = results.filter(l => l.time >= from);
-        if (to)         results = results.filter(l => l.time <= to);
-        const total = results.length;
-        const logs = results.slice().reverse().slice(Number(offset), Number(offset) + Number(limit));
-        return { total, logs };
-      }
-      stats() {
-        const logs = this._logs;
-        const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
-        const toolCounts = {}, methodCounts = {}, ipCounts = {};
-        let errors = 0, recentCount = 0;
-        for (const l of logs) {
-          if (l.tool)       toolCounts[l.tool]         = (toolCounts[l.tool]         || 0) + 1;
-          if (l.mcp_method) methodCounts[l.mcp_method] = (methodCounts[l.mcp_method] || 0) + 1;
-          if (l.ip)         ipCounts[l.ip]             = (ipCounts[l.ip]             || 0) + 1;
-          if (l.isError)    errors++;
-          if (l.time >= hourAgo) recentCount++;
-        }
-        return {
-          total:       logs.length,
-          uniqueIps:   Object.keys(ipCounts).length,
-          topTools:    Object.entries(toolCounts).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([name,count])=>({name,count})),
-          topIps:      Object.entries(ipCounts).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([ip,count])=>({ip,count})),
-          methods:     methodCounts,
-          errors,
-          recentCount,
-          firstSeen:   logs[0]?.time ?? null,
-          lastSeen:    logs[logs.length-1]?.time ?? null,
-        };
-      }
-      timeline(minutes = 60) {
-        const now = Date.now();
-        const buckets = {};
-        for (let i = 0; i < minutes; i++) {
-          const key = new Date(now - i * 60_000).toISOString().slice(0, 16);
-          buckets[key] = 0;
-        }
-        for (const l of this._logs) {
-          const key = l.time.slice(0, 16);
-          if (key in buckets) buckets[key]++;
-        }
-        return Object.entries(buckets).sort((a,b)=>a[0].localeCompare(b[0])).map(([minute,count])=>({minute,count}));
-      }
-      clear() { this._logs = []; }
-      get size() { return this._logs.length; }
-    }
-    return { LogStore };
-  })();
-  return new LS(100);
+// Each test gets a fresh store instance backed by the real production class.
+function makeStore(options = {}) {
+  return new LogStore.LogStore({ maxSize: 100, ...options });
 }
 
 describe('LogStore', () => {
@@ -222,6 +155,63 @@ describe('LogStore', () => {
       const now = new Date().toISOString().slice(0, 16);
       const bucket = result.find(b => b.minute === now);
       expect(bucket?.count).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+
+  describe('configuration', () => {
+    it('defaults the application store options to SQLite with 90-day retention', () => {
+      const options = LogStore.envOptions({});
+      expect(options.backend).toBe('sqlite');
+      expect(options.retentionDays).toBe(90);
+      expect(options.sqlitePath).toContain('mcp-decoy.db');
+    });
+  });
+
+  describe('SQLite persistence', () => {
+    it('persists records across store instances when backend is sqlite', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-decoy-store-'));
+      const dbPath = path.join(dir, 'events.db');
+
+      const first = makeStore({ backend: 'sqlite', sqlitePath: dbPath });
+      first.add({ ip: '10.10.10.10', mcp_method: 'tools/list', tool: 'github_search_repositories' });
+      first.close();
+
+      const second = makeStore({ backend: 'sqlite', sqlitePath: dbPath });
+      const { total, logs } = second.query({ ip: '10.10.10.10' });
+      expect(total).toBe(1);
+      expect(logs[0].tool).toBe('github_search_repositories');
+      second.close();
+    });
+
+    it('defaults SQLite retention to 90 days and prunes older records', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-decoy-store-'));
+      const dbPath = path.join(dir, 'events.db');
+      const store = makeStore({ backend: 'sqlite', sqlitePath: dbPath });
+
+      store.add({ ip: 'old', time: new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString() });
+      store.add({ ip: 'new', time: new Date(Date.now() - 89 * 24 * 60 * 60 * 1000).toISOString() });
+      store.pruneRetention();
+
+      expect(store.retentionDays).toBe(90);
+      expect(store.query({ ip: 'old' }).total).toBe(0);
+      expect(store.query({ ip: 'new' }).total).toBe(1);
+      store.close();
+    });
+
+    it('uses configurable SQLite retention days', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-decoy-store-'));
+      const dbPath = path.join(dir, 'events.db');
+      const store = makeStore({ backend: 'sqlite', sqlitePath: dbPath, retentionDays: 7 });
+
+      store.add({ ip: 'expired', time: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() });
+      store.add({ ip: 'kept', time: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() });
+      store.pruneRetention();
+
+      expect(store.retentionDays).toBe(7);
+      expect(store.query({ ip: 'expired' }).total).toBe(0);
+      expect(store.query({ ip: 'kept' }).total).toBe(1);
+      store.close();
     });
   });
 
