@@ -297,7 +297,7 @@ MCP Decoy is intentionally designed as a deception endpoint. Treat it like an ex
 
 - Do **not** configure it with real credentials or connect it to production data stores. All tool responses should remain fake/decoy data.
 - Bind to localhost unless you intentionally want the decoy reachable from another network segment. For Docker, prefer `-p 127.0.0.1:3110:3110` for local-only runs.
-- Set `DASHBOARD_TOKEN` before exposing the dashboard/API beyond localhost. This protects `/api/*` data access with `Authorization: Bearer <token>`; the MCP decoy endpoints (`/mcp`, `/sse`, `/messages`, `/.well-known/mcp`) remain unauthenticated so clients can still interact with the sensor.
+- Set `DASHBOARD_TOKEN` before exposing the dashboard/API beyond localhost. This protects `/api/*` data access with a bearer-token `Authorization` header; the MCP decoy endpoints (`/mcp`, `/sse`, `/messages`, `/.well-known/mcp`) remain unauthenticated so clients can still interact with the sensor.
 - For Internet or shared-network exposure, still put the service behind a trusted reverse proxy, VPN, firewall rule, or lab network boundary. `DASHBOARD_TOKEN` is a lightweight access gate, not enterprise SSO.
 - `X-Forwarded-For` is used for source IP attribution. Only trust that field when the service is behind a proxy you control.
 - Logs are stored in SQLite by default with configurable retention. Forward to syslog/SIEM if you need centralized evidence.
@@ -537,7 +537,7 @@ Each access event stored in the log has the following fields:
 If `DASHBOARD_TOKEN` is set, include a bearer token on API calls:
 
 ```bash
-curl -H "Authorization: Bearer $DASHBOARD_TOKEN" 'http://localhost:3110/api/stats'
+curl -H "Authorization: Bearer YOUR_DASHBOARD_TOKEN" 'http://localhost:3110/api/stats'
 ```
 
 Unauthenticated examples below assume `DASHBOARD_TOKEN` is unset.
