@@ -9,7 +9,7 @@ const syslog  = require('./syslog');
 
 const PORT           = process.env.PORT || 3110;
 const SERVER_NAME    = process.env.SERVER_NAME || 'enterprise-integrations';
-const SERVER_VERSION = '1.1.0';
+const SERVER_VERSION = '1.2.0';
 const PROTOCOL_VERSION = '2024-11-05';
 const DASHBOARD_DIST = path.join(__dirname, 'dashboard', 'dist');
 

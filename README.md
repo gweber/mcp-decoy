@@ -68,7 +68,7 @@ The server listens on port 3110 by default. Verify it is up:
 
 ```bash
 curl http://localhost:3110/health
-# {"status":"ok","server":"enterprise-integrations","version":"1.1.0"}
+# {"status":"ok","server":"enterprise-integrations","version":"1.2.0"}
 ```
 
 For development with auto-restart:
@@ -479,6 +479,47 @@ Tests are in `test/` using Vitest 4 and Supertest:
 
 ## Deployment
 
+### Published container image
+
+Release images are published to GitHub Container Registry:
+
+```text
+ghcr.io/gweber/mcp-decoy:1.2.0
+ghcr.io/gweber/mcp-decoy:latest
+```
+
+Run the release image with SQLite persistence and dashboard/API token auth:
+
+```bash
+DASHBOARD_TOKEN=$(openssl rand -hex 32)
+docker run --rm \
+  -p 127.0.0.1:3110:3110 \
+  -e DASHBOARD_TOKEN="$DASHBOARD_TOKEN" \
+  -e STORE_BACKEND=sqlite \
+  -e SQLITE_PATH=/data/mcp-decoy.db \
+  -v mcp-decoy-data:/data \
+  ghcr.io/gweber/mcp-decoy:1.2.0
+```
+
+Compose image example:
+
+```yaml
+services:
+  mcp-decoy:
+    image: ghcr.io/gweber/mcp-decoy:1.2.0
+    ports:
+      - "127.0.0.1:3110:3110"
+    environment:
+      DASHBOARD_TOKEN: "${DASHBOARD_TOKEN:-}"
+      STORE_BACKEND: sqlite
+      SQLITE_PATH: /data/mcp-decoy.db
+    volumes:
+      - mcp-decoy-data:/data
+
+volumes:
+  mcp-decoy-data:
+```
+
 ### Docker Compose
 
 The repository includes a production-oriented `Dockerfile` and `compose.yaml`. The Docker image builds the Vue dashboard and serves the static dashboard from the Express server; no separate dashboard container is required. For local-only runs, bind the published port to loopback.
@@ -499,7 +540,7 @@ docker run --rm \
   -e STORE_BACKEND=sqlite \
   -e SQLITE_PATH=/data/mcp-decoy.db \
   -v mcp-decoy-data:/data \
-  mcp-decoy:latest
+  ghcr.io/gweber/mcp-decoy:1.2.0
 ```
 
 Useful environment variables can be supplied through the shell or an `.env` file:
