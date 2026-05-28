@@ -1,0 +1,14 @@
+services:
+  mcp-decoy:
+    build: .
+    image: mcp-decoy:local
+    ports:
+      - "3110:3110"
+    environment:
+      PORT: "3110"
+      SERVER_NAME: "enterprise-integrations"
+      SYSLOG_HOST: "${SYSLOG_HOST:-}"
+      SYSLOG_PORT: "${SYSLOG_PORT:-514}"
+      SYSLOG_PROTOCOL: "${SYSLOG_PROTOCOL:-udp}"
+      SYSLOG_APP_NAME: "mcp-decoy"
+    restart: unless-stopped

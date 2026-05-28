@@ -1,0 +1,10 @@
+node_modules
+coverage
+dashboard/node_modules
+dashboard/dist
+.git
+.github
+*.log
+.env
+.env.*
+!.env.example
