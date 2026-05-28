@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "commonjs",
   "engines": {
-    "node": ">=26"
+    "node": ">=24"
   },
   "scripts": {
     "start": "node index.js",
