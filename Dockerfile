@@ -19,7 +19,7 @@ ENV NODE_ENV=production \
     LOG_RETENTION_DAYS=90
 COPY package*.json ./
 RUN npm ci --omit=dev
-COPY index.js tools.js store.js syslog.js ./
+COPY index.js tools.js store.js syslog.js detections.js ./
 COPY --from=dashboard-build /app/dashboard/dist ./dashboard/dist
 EXPOSE 3110
 CMD ["node", "index.js"]

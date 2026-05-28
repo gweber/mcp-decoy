@@ -48,3 +48,20 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t mcp-decoy:ci .
+
+      - name: Smoke-test Docker image
+        run: |
+          set -euo pipefail
+          cid=$(docker run -d -p 127.0.0.1:3911:3110 -e DASHBOARD_TOKEN=ci-token mcp-decoy:ci)
+          cleanup() { docker rm -f "$cid" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:3911/health >/tmp/mcp-decoy-health.json; then
+              break
+            fi
+            sleep 0.25
+          done
+          cat /tmp/mcp-decoy-health.json
+          grep '"version":"1.2.0"' /tmp/mcp-decoy-health.json
+          test "$(curl -s -o /tmp/mcp-decoy-api-unauth.json -w '%{http_code}' http://127.0.0.1:3911/api/stats)" = "401"
+          test "$(curl -s -o /tmp/mcp-decoy-api-auth.json -w '%{http_code}' -H 'Authorization: Bearer ci-token' http://127.0.0.1:3911/api/stats)" = "200"
