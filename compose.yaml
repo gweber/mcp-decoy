@@ -13,6 +13,7 @@ services:
       SYSLOG_HOST: "${SYSLOG_HOST:-}"
       SYSLOG_PORT: "${SYSLOG_PORT:-514}"
       SYSLOG_PROTOCOL: "${SYSLOG_PROTOCOL:-udp}"
+      SYSLOG_DETECTIONS: "${SYSLOG_DETECTIONS:-true}"
       SYSLOG_APP_NAME: "mcp-decoy"
     volumes:
       - mcp-decoy-data:/data

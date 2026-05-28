@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import http from 'http';
 import request from 'supertest';
 const { app, store, sessions } = require('../index.js');
+const syslog = require('../syslog.js');
 const { TOOLS } = require('../tools.js');
 
 // Starts the Express app on a random port and returns { port, close }
@@ -350,6 +351,15 @@ describe('GET /api/detections', () => {
     const rule = await request(app).get('/api/detections?rule_id=MCP_DATASTORE_RECON');
     expect(rule.body.total).toBe(1);
     expect(rule.body.detections[0].rule_id).toBe('MCP_DATASTORE_RECON');
+  });
+  it('forwards generated detections to syslog', async () => {
+    const spy = vi.spyOn(syslog, 'sendDetection').mockImplementation(() => {});
+    await post(rpc('tools/call', { name: 'nonexistent_tool', arguments: {} }));
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({
+      rule_id: 'MCP_UNKNOWN_TOOL_PROBE',
+      severity: 'medium',
+    }));
+    spy.mockRestore();
   });
 });
 

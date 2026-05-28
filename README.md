@@ -2,7 +2,7 @@
 
 ![Node.js 24+](https://img.shields.io/badge/Node.js-24%2B-339933?logo=node.js&logoColor=white)
 ![MCP 2024-11-05](https://img.shields.io/badge/MCP-2024--11--05-6B46C1)
-![Tests 111 passing](https://img.shields.io/badge/tests-111%20passing-brightgreen)
+![Tests 137 passing](https://img.shields.io/badge/tests-137%20passing-brightgreen)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue)
 
 An Express.js server that impersonates a legitimate enterprise MCP (Model Context Protocol) integration platform. Every interaction is logged in forensic detail and optionally forwarded to a SIEM via RFC 5424 syslog. Designed for deception-based threat detection against AI-enabled attackers.
@@ -93,7 +93,8 @@ All configuration is via environment variables. The server runs with safe defaul
 | `SYSLOG_PORT` | `514` | Syslog destination port |
 | `SYSLOG_PROTOCOL` | `udp` | Transport: `udp` or `tcp` |
 | `SYSLOG_FACILITY` | `16` | RFC 5424 facility code (16 = local0) |
-| `SYSLOG_SEVERITY` | `5` | RFC 5424 severity code (5 = notice) |
+| `SYSLOG_SEVERITY` | `5` | RFC 5424 severity code for raw access events (5 = notice) |
+| `SYSLOG_DETECTIONS` | `true` | Forward generated detections as separate RFC 5424 syslog events when `SYSLOG_HOST` is set. Set to `false` to forward raw logs only |
 | `SYSLOG_APP_NAME` | `mcp-decoy` | APP-NAME field in syslog messages |
 
 Example — enable syslog forwarding to a local collector:
@@ -331,15 +332,30 @@ Detections are deduplicated by rule, source IP, subject tool/method, and 5-minut
 
 ## Syslog Integration
 
-When `SYSLOG_HOST` is set, every logged access event is forwarded as an RFC 5424 message with a structured-data element containing `id`, `ip`, `mcp_method`, and `tool`.
+When `SYSLOG_HOST` is set, every logged access event is forwarded as an RFC 5424 message with a structured-data element containing `id`, `ip`, `mcp_method`, and `tool`. Generated detections are forwarded as separate RFC 5424 messages by default; set `SYSLOG_DETECTIONS=false` to suppress detection forwarding while keeping raw access logs.
 
-**Message format:**
+**Raw access message format:**
 
 ```
 <133>1 2026-04-22T14:30:00.000Z hostname mcp-decoy 1234 tools/call [id="<uuid>" ip="10.0.1.42" mcp_method="tools/call" tool="confluence_search"] MCP tool call: confluence_search from 10.0.1.42
 ```
 
 The PRI value `133` = facility 16 (local0) × 8 + severity 5 (notice).
+
+**Detection message format:**
+
+```
+<131>1 2026-04-22T14:30:01.000Z hostname mcp-decoy 1234 detection [mcp-detection detection_id="<uuid>" rule_id="MCP_DATASTORE_RECON" severity="high" confidence="high" source_ip="10.0.1.42" tool="postgresql_list_databases" mcp_method="tools/call" evidence_count="1"] MCP detection: MCP_DATASTORE_RECON high from 10.0.1.42
+```
+
+Detection syslog severity is mapped from detection severity instead of `SYSLOG_SEVERITY`:
+
+- `critical` → RFC severity 2 / critical
+- `high` → RFC severity 3 / error
+- `medium` → RFC severity 4 / warning
+- `low` → RFC severity 5 / notice
+
+With the default local0 facility, a high detection uses PRI `131` = 16 × 8 + 3.
 
 ### Splunk (Universal Forwarder or HEC)
 
@@ -354,18 +370,27 @@ node index.js
 
 Configure a UDP input in Splunk (`Settings → Data Inputs → UDP`) on port 514, sourcetype `syslog`.
 
-**Recommended search:**
+**Recommended raw activity search:**
 
 ```spl
-index=main sourcetype=syslog app="mcp-decoy"
+index=main sourcetype=syslog app="mcp-decoy" NOT msgid="detection"
 | rex field=_raw "\[id=\"(?P<id>[^\"]+)\" ip=\"(?P<src_ip>[^\"]+)\" mcp_method=\"(?P<method>[^\"]+)\" tool=\"(?P<tool>[^\"]+)\"\]"
 | stats count by src_ip, tool
 | sort -count
 ```
 
+**Recommended detection search:**
+
+```spl
+index=main sourcetype=syslog app="mcp-decoy" " mcp-decoy " " detection "
+| rex field=_raw "rule_id=\"(?P<rule_id>[^\"]+)\" severity=\"(?P<severity>[^\"]+)\" confidence=\"(?P<confidence>[^\"]+)\" source_ip=\"(?P<src_ip>[^\"]+)\" tool=\"(?P<tool>[^\"]+)\".*evidence_count=\"(?P<evidence_count>[^\"]+)\""
+| stats count by severity, rule_id, confidence, src_ip, tool
+| sort -count
+```
+
 ### QRadar
 
-Forward via UDP syslog to a QRadar Log Source configured as `Syslog` type. The structured-data fields will appear in the raw event. Create a custom DSM property extraction for the `tool` and `ip` fields from the structured-data segment.
+Forward via UDP syslog to a QRadar Log Source configured as `Syslog` type. The structured-data fields will appear in the raw event. Create custom DSM property extractions for raw activity fields (`tool`, `ip`) and detection fields (`rule_id`, `severity`, `confidence`, `source_ip`, `detection_id`, `evidence_count`).
 
 ```bash
 SYSLOG_HOST=qradar.corp.internal \
@@ -404,11 +429,14 @@ log {
 
 ### Graylog
 
-Create a UDP GELF or Syslog input on port 514. Configure an extractor on the message field to parse structured-data key-value pairs:
+Create a UDP GELF or Syslog input on port 514. Configure extractors on the message field to parse structured-data key-value pairs:
 
-```
-Extractor type: Grok
-Named captures: \[id="%{DATA:mcp_id}" ip="%{IP:src_ip}" mcp_method="%{DATA:mcp_method}" tool="%{DATA:tool}"\]
+```text
+Raw activity Grok:
+\[id="%{DATA:mcp_id}" ip="%{IP:src_ip}" mcp_method="%{DATA:mcp_method}" tool="%{DATA:tool}"\]
+
+Detection Grok:
+\[mcp-detection detection_id="%{DATA:detection_id}" rule_id="%{DATA:rule_id}" severity="%{DATA:severity}" confidence="%{DATA:confidence}" source_ip="%{IP:src_ip}" tool="%{DATA:tool}" mcp_method="%{DATA:mcp_method}" evidence_count="%{NUMBER:evidence_count}"\]
 ```
 
 **TCP mode** (for reliable delivery to Graylog):
@@ -425,7 +453,7 @@ TCP transport maintains a persistent connection and buffers messages during reco
 ## Testing
 
 ```bash
-# Run all tests (131 tests)
+# Run all tests (137 tests)
 npm test
 
 # Watch mode
@@ -440,7 +468,8 @@ Tests are in `test/` using Vitest 4 and Supertest:
 | File | Scope | Count |
 |---|---|---|
 | `test/tools.test.js` | Unit — all 38 tool dispatchers, schema validation, fake data shapes | ~70 |
-| `test/server.test.js` | Integration — HTTP endpoints, MCP protocol handshake, both transports | ~30 |
+| `test/server.test.js` | Integration — HTTP endpoints, MCP protocol handshake, both transports, detection forwarding | ~50 |
+| `test/syslog.test.js` | Unit — RFC 5424 raw/detection message formatting, severity mapping, detection forwarding config | 5 |
 | `test/detections.test.js` | Unit — deterministic detection rules, secret-hunting terms, multi-tool recon | 9 |
 | `test/store.test.js` | Unit — LogStore backends, query filters, stats, timeline, detection persistence | ~30 |
 
@@ -461,6 +490,7 @@ Useful environment variables can be supplied through the shell or an `.env` file
 SYSLOG_HOST=splunk-indexer.corp.internal \
 SYSLOG_PORT=514 \
 SYSLOG_PROTOCOL=udp \
+SYSLOG_DETECTIONS=true \
 docker compose up --build -d
 ```
 
