@@ -1,6 +1,25 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+const TOKEN_STORAGE_KEY = 'mcp-decoy-dashboard-token'
+
+function readStoredToken() {
+  try {
+    return window.localStorage.getItem(TOKEN_STORAGE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeStoredToken(token) {
+  try {
+    if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token)
+    else window.localStorage.removeItem(TOKEN_STORAGE_KEY)
+  } catch {
+    // localStorage can be disabled; keep in-memory token only.
+  }
+}
+
 export const useLogsStore = defineStore('logs', () => {
   const logs = ref([])
   const stats = ref(null)
@@ -8,16 +27,55 @@ export const useLogsStore = defineStore('logs', () => {
   const tools = ref([])
   const detections = ref([])
   const connected = ref(false)
+  const dashboardToken = ref(readStoredToken())
+  const authRequired = ref(false)
+  const authError = ref('')
 
   let eventSource = null
   let reconnectTimer = null
   let eventCountSinceLastStatsFetch = 0
 
+  function authHeaders() {
+    return dashboardToken.value
+      ? { Authorization: `Bearer ${dashboardToken.value}` }
+      : {}
+  }
+
+  async function apiFetch(url, options = {}) {
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        ...authHeaders(),
+      },
+    })
+    if (res.status === 401) {
+      authRequired.value = true
+      authError.value = 'Dashboard token required or invalid.'
+    }
+    return res
+  }
+
+  function setDashboardToken(token) {
+    dashboardToken.value = token.trim()
+    writeStoredToken(dashboardToken.value)
+    authRequired.value = false
+    authError.value = ''
+    stopEventStream()
+  }
+
+  function clearDashboardToken() {
+    setDashboardToken('')
+    authRequired.value = true
+  }
+
   async function fetchStats() {
     try {
-      const res = await fetch('/api/stats')
+      const res = await apiFetch('/api/stats')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       stats.value = await res.json()
+      authRequired.value = false
+      authError.value = ''
     } catch (err) {
       console.error('[store] fetchStats error:', err)
     }
@@ -34,9 +92,11 @@ export const useLogsStore = defineStore('logs', () => {
       if (params.from) query.set('from', params.from)
       if (params.to) query.set('to', params.to)
 
-      const res = await fetch(`/api/logs?${query.toString()}`)
+      const res = await apiFetch(`/api/logs?${query.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
+      authRequired.value = false
+      authError.value = ''
       return data
     } catch (err) {
       console.error('[store] fetchLogs error:', err)
@@ -55,10 +115,12 @@ export const useLogsStore = defineStore('logs', () => {
       if (params.from) query.set('from', params.from)
       if (params.to) query.set('to', params.to)
 
-      const res = await fetch(`/api/detections?${query.toString()}`)
+      const res = await apiFetch(`/api/detections?${query.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       detections.value = data.detections || []
+      authRequired.value = false
+      authError.value = ''
       return data
     } catch (err) {
       console.error('[store] fetchDetections error:', err)
@@ -68,9 +130,11 @@ export const useLogsStore = defineStore('logs', () => {
 
   async function fetchTimeline(minutes = 60) {
     try {
-      const res = await fetch(`/api/timeline?minutes=${minutes}`)
+      const res = await apiFetch(`/api/timeline?minutes=${minutes}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       timeline.value = await res.json()
+      authRequired.value = false
+      authError.value = ''
     } catch (err) {
       console.error('[store] fetchTimeline error:', err)
     }
@@ -78,10 +142,12 @@ export const useLogsStore = defineStore('logs', () => {
 
   async function fetchTools() {
     try {
-      const res = await fetch('/api/tools')
+      const res = await apiFetch('/api/tools')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       tools.value = data.tools || []
+      authRequired.value = false
+      authError.value = ''
     } catch (err) {
       console.error('[store] fetchTools error:', err)
     }
@@ -96,7 +162,8 @@ export const useLogsStore = defineStore('logs', () => {
         reconnectTimer = null
       }
 
-      eventSource = new EventSource('/api/events')
+      const query = dashboardToken.value ? `?token=${encodeURIComponent(dashboardToken.value)}` : ''
+      eventSource = new EventSource(`/api/events${query}`)
 
       eventSource.addEventListener('log', (e) => {
         try {
@@ -132,6 +199,8 @@ export const useLogsStore = defineStore('logs', () => {
 
       eventSource.onopen = () => {
         connected.value = true
+        authRequired.value = false
+        authError.value = ''
       }
 
       eventSource.onerror = () => {
@@ -164,6 +233,11 @@ export const useLogsStore = defineStore('logs', () => {
     tools,
     detections,
     connected,
+    dashboardToken,
+    authRequired,
+    authError,
+    setDashboardToken,
+    clearDashboardToken,
     fetchStats,
     fetchLogs,
     fetchDetections,

@@ -2,7 +2,7 @@
 
 ![Node.js 24+](https://img.shields.io/badge/Node.js-24%2B-339933?logo=node.js&logoColor=white)
 ![MCP 2024-11-05](https://img.shields.io/badge/MCP-2024--11--05-6B46C1)
-![Tests 137 passing](https://img.shields.io/badge/tests-137%20passing-brightgreen)
+![Tests 141 passing](https://img.shields.io/badge/tests-141%20passing-brightgreen)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue)
 
 An Express.js server that impersonates a legitimate enterprise MCP (Model Context Protocol) integration platform. Every interaction is logged in forensic detail and optionally forwarded to a SIEM via RFC 5424 syslog. Designed for deception-based threat detection against AI-enabled attackers.
@@ -89,6 +89,7 @@ All configuration is via environment variables. The server runs with safe defaul
 | `SQLITE_PATH` | `./data/mcp-decoy.db` | SQLite database path when `STORE_BACKEND=sqlite` |
 | `LOG_RETENTION_DAYS` | `90` | SQLite retention window in days. Older records are pruned on startup and can be pruned programmatically |
 | `LOG_MAX_SIZE` | `10000` | Maximum retained log records. For SQLite this caps records after each insert; for memory this caps the in-memory ring buffer |
+| `DASHBOARD_TOKEN` | _(unset)_ | Optional bearer token for `/api/*` and dashboard data access. MCP decoy endpoints stay unauthenticated |
 | `SYSLOG_HOST` | _(unset)_ | Syslog destination hostname or IP. Syslog forwarding is **disabled** when unset |
 | `SYSLOG_PORT` | `514` | Syslog destination port |
 | `SYSLOG_PROTOCOL` | `udp` | Transport: `udp` or `tcp` |
@@ -287,6 +288,7 @@ npm run build
 - Top source IPs (bar chart)
 - MCP method breakdown (initialize / tools/list / tools/call)
 - Recent detections panel with severity, rule ID, source IP, confidence, and summary
+- Optional token prompt when `DASHBOARD_TOKEN` protects the dashboard/API
 - Paginated, filterable access log table — filter by IP, tool, MCP method, or time range
 
 ## Security and Deployment Notes
@@ -294,7 +296,9 @@ npm run build
 MCP Decoy is intentionally designed as a deception endpoint. Treat it like an exposed sensor, not like a trusted production integration.
 
 - Do **not** configure it with real credentials or connect it to production data stores. All tool responses should remain fake/decoy data.
-- The dashboard and HTTP API do not implement authentication. Put the service behind a trusted reverse proxy, VPN, firewall rule, or lab network boundary before exposing it beyond localhost.
+- Bind to localhost unless you intentionally want the decoy reachable from another network segment. For Docker, prefer `-p 127.0.0.1:3110:3110` for local-only runs.
+- Set `DASHBOARD_TOKEN` before exposing the dashboard/API beyond localhost. This protects `/api/*` data access with `Authorization: Bearer <token>`; the MCP decoy endpoints (`/mcp`, `/sse`, `/messages`, `/.well-known/mcp`) remain unauthenticated so clients can still interact with the sensor.
+- For Internet or shared-network exposure, still put the service behind a trusted reverse proxy, VPN, firewall rule, or lab network boundary. `DASHBOARD_TOKEN` is a lightweight access gate, not enterprise SSO.
 - `X-Forwarded-For` is used for source IP attribution. Only trust that field when the service is behind a proxy you control.
 - Logs are stored in SQLite by default with configurable retention. Forward to syslog/SIEM if you need centralized evidence.
 - Review local laws, internal policies, and consent requirements before deploying deception systems in shared or customer environments.
@@ -453,7 +457,7 @@ TCP transport maintains a persistent connection and buffers messages during reco
 ## Testing
 
 ```bash
-# Run all tests (137 tests)
+# Run all tests (141 tests)
 npm test
 
 # Watch mode
@@ -468,7 +472,7 @@ Tests are in `test/` using Vitest 4 and Supertest:
 | File | Scope | Count |
 |---|---|---|
 | `test/tools.test.js` | Unit — all 38 tool dispatchers, schema validation, fake data shapes | ~70 |
-| `test/server.test.js` | Integration — HTTP endpoints, MCP protocol handshake, both transports, detection forwarding | ~50 |
+| `test/server.test.js` | Integration — HTTP endpoints, MCP protocol handshake, both transports, optional dashboard/API auth, detection forwarding | ~55 |
 | `test/syslog.test.js` | Unit — RFC 5424 raw/detection message formatting, severity mapping, detection forwarding config | 5 |
 | `test/detections.test.js` | Unit — deterministic detection rules, secret-hunting terms, multi-tool recon | 9 |
 | `test/store.test.js` | Unit — LogStore backends, query filters, stats, timeline, detection persistence | ~30 |
@@ -477,16 +481,31 @@ Tests are in `test/` using Vitest 4 and Supertest:
 
 ### Docker Compose
 
-The repository includes a production-oriented `Dockerfile` and `compose.yaml`. The Docker image builds the Vue dashboard and serves the static dashboard from the Express server; no separate dashboard container is required.
+The repository includes a production-oriented `Dockerfile` and `compose.yaml`. The Docker image builds the Vue dashboard and serves the static dashboard from the Express server; no separate dashboard container is required. For local-only runs, bind the published port to loopback.
 
 ```bash
-docker compose up --build -d
+DASHBOARD_TOKEN=$(openssl rand -hex 32)
+DASHBOARD_TOKEN="$DASHBOARD_TOKEN" docker compose up --build -d
 curl http://localhost:3110/health
+```
+
+Direct Docker example:
+
+```bash
+DASHBOARD_TOKEN=$(openssl rand -hex 32)
+docker run --rm \
+  -p 127.0.0.1:3110:3110 \
+  -e DASHBOARD_TOKEN="$DASHBOARD_TOKEN" \
+  -e STORE_BACKEND=sqlite \
+  -e SQLITE_PATH=/data/mcp-decoy.db \
+  -v mcp-decoy-data:/data \
+  mcp-decoy:latest
 ```
 
 Useful environment variables can be supplied through the shell or an `.env` file:
 
 ```bash
+DASHBOARD_TOKEN=$(openssl rand -hex 32) \
 SYSLOG_HOST=splunk-indexer.corp.internal \
 SYSLOG_PORT=514 \
 SYSLOG_PROTOCOL=udp \
@@ -514,6 +533,14 @@ Each access event stored in the log has the following fields:
 | `client` | MCP `clientInfo` object from the `initialize` handshake |
 
 ### Querying the API
+
+If `DASHBOARD_TOKEN` is set, include a bearer token on API calls:
+
+```bash
+curl -H "Authorization: Bearer $DASHBOARD_TOKEN" 'http://localhost:3110/api/stats'
+```
+
+Unauthenticated examples below assume `DASHBOARD_TOKEN` is unset.
 
 ```bash
 # All logs, paginated

@@ -3,13 +3,14 @@ services:
     build: .
     image: mcp-decoy:local
     ports:
-      - "3110:3110"
+      - "127.0.0.1:3110:3110"
     environment:
       PORT: "3110"
       SERVER_NAME: "enterprise-integrations"
       STORE_BACKEND: "sqlite"
       SQLITE_PATH: "/data/mcp-decoy.db"
       LOG_RETENTION_DAYS: "90"
+      DASHBOARD_TOKEN: "${DASHBOARD_TOKEN:-}"
       SYSLOG_HOST: "${SYSLOG_HOST:-}"
       SYSLOG_PORT: "${SYSLOG_PORT:-514}"
       SYSLOG_PROTOCOL: "${SYSLOG_PROTOCOL:-udp}"

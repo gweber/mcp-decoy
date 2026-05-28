@@ -24,8 +24,11 @@ function httpGet(port, path) {
   });
 }
 
-// Reset log store between test suites to keep stats predictable
-beforeEach(() => store.clear());
+// Reset log store and auth config between test suites to keep tests predictable
+beforeEach(() => {
+  store.clear();
+  delete process.env.DASHBOARD_TOKEN;
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -401,6 +404,51 @@ describe('GET /api/events', () => {
     } finally {
       await srv.close();
     }
+  });
+});
+
+describe('Dashboard/API auth', () => {
+  it('leaves API open when DASHBOARD_TOKEN is unset', async () => {
+    const res = await request(app).get('/api/stats');
+    expect(res.status).toBe(200);
+  });
+
+  it('requires a valid bearer token for /api when DASHBOARD_TOKEN is set', async () => {
+    process.env.DASHBOARD_TOKEN = 'test-token';
+
+    const missing = await request(app).get('/api/stats');
+    expect(missing.status).toBe(401);
+    expect(missing.body.error).toBe('Unauthorized');
+
+    const wrong = await request(app).get('/api/stats').set('Authorization', 'Bearer wrong');
+    expect(wrong.status).toBe(401);
+
+    const ok = await request(app).get('/api/stats').set('Authorization', 'Bearer test-token');
+    expect(ok.status).toBe(200);
+    expect(ok.body).toHaveProperty('total');
+  });
+
+  it('accepts ?token for /api/events SSE when DASHBOARD_TOKEN is set', async () => {
+    process.env.DASHBOARD_TOKEN = 'event-token';
+    const srv = await startServer();
+    try {
+      const denied = await request(app).get('/api/events');
+      expect(denied.status).toBe(401);
+
+      const res = await httpGet(srv.port, '/api/events?token=event-token');
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/event-stream');
+      res.destroy();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('leaves MCP endpoints unauthenticated when DASHBOARD_TOKEN is set', async () => {
+    process.env.DASHBOARD_TOKEN = 'test-token';
+    const res = await post(rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: {} }));
+    expect(res.status).toBe(200);
+    expect(res.body.result.serverInfo.name).toBeTruthy();
   });
 });
 

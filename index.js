@@ -23,6 +23,25 @@ store.on('detection', detection => syslog.sendDetection(detection));
 // second, making byte-identical responses look "distinct" to determinism probes.
 app.use((_req, res, next) => { res.removeHeader('Date'); next(); });
 
+// ── Dashboard/API auth ────────────────────────────────────────────────────────
+
+function getDashboardToken() {
+  return process.env.DASHBOARD_TOKEN || '';
+}
+
+function dashboardTokenFromRequest(req) {
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return auth.slice('Bearer '.length);
+  return req.query?.token || '';
+}
+
+function requireDashboardAuth(req, res, next) {
+  const expected = getDashboardToken();
+  if (!expected) return next();
+  if (dashboardTokenFromRequest(req) === expected) return next();
+  res.status(401).json({ error: 'Unauthorized' });
+}
+
 // ── Access logging ───────────────────────────────────────────────────────────
 
 function logAccess(req, extra = {}) {
@@ -177,6 +196,8 @@ app.post('/messages', (req, res) => {
 });
 
 // ── Dashboard API ─────────────────────────────────────────────────────────────
+
+app.use('/api', requireDashboardAuth);
 
 app.get('/api/logs', (req, res) => {
   res.json(store.query(req.query));
