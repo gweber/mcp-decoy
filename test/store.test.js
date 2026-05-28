@@ -168,6 +168,40 @@ describe('LogStore', () => {
     });
   });
 
+  describe('detections', () => {
+    it('creates and lists detections for suspicious logs', () => {
+      store.add({ ip: '10.0.0.7', mcp_method: 'tools/list' });
+      const { total, detections } = store.queryDetections();
+      expect(total).toBe(1);
+      expect(detections[0].rule_id).toBe('MCP_TOOL_ENUMERATION');
+      expect(detections[0].severity).toBe('medium');
+      expect(detections[0].evidence_event_ids).toHaveLength(1);
+    });
+
+    it('filters detections by severity, rule_id, and source_ip', () => {
+      store.add({ ip: '10.0.0.8', mcp_method: 'tools/list' });
+      store.add({ ip: '10.0.0.9', mcp_method: 'tools/call', tool: 'postgresql_list_databases', args: {} });
+
+      expect(store.queryDetections({ severity: 'high' }).detections.every(d => d.severity === 'high')).toBe(true);
+      expect(store.queryDetections({ rule_id: 'MCP_DATASTORE_RECON' }).total).toBe(1);
+      expect(store.queryDetections({ source_ip: '10.0.0.8' }).detections[0].rule_id).toBe('MCP_TOOL_ENUMERATION');
+    });
+
+    it('deduplicates repeated detections in the same five-minute bucket', () => {
+      store.add({ ip: '10.0.0.10', mcp_method: 'tools/list' });
+      store.add({ ip: '10.0.0.10', mcp_method: 'tools/list' });
+      expect(store.queryDetections({ rule_id: 'MCP_TOOL_ENUMERATION' }).total).toBe(1);
+    });
+
+    it('includes detection counts in stats', () => {
+      store.add({ ip: '10.0.0.11', mcp_method: 'tools/list' });
+      const stats = store.stats();
+      expect(stats.detections.total).toBe(1);
+      expect(stats.detections.bySeverity.medium).toBe(1);
+      expect(stats.detections.byRule.MCP_TOOL_ENUMERATION).toBe(1);
+    });
+  });
+
   describe('SQLite persistence', () => {
     it('persists records across store instances when backend is sqlite', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-decoy-store-'));
@@ -212,6 +246,21 @@ describe('LogStore', () => {
       expect(store.query({ ip: 'expired' }).total).toBe(0);
       expect(store.query({ ip: 'kept' }).total).toBe(1);
       store.close();
+    });
+
+    it('persists detections across SQLite store instances', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-decoy-store-'));
+      const dbPath = path.join(dir, 'events.db');
+
+      const first = makeStore({ backend: 'sqlite', sqlitePath: dbPath });
+      first.add({ ip: '10.10.20.30', mcp_method: 'tools/list' });
+      first.close();
+
+      const second = makeStore({ backend: 'sqlite', sqlitePath: dbPath });
+      const { total, detections } = second.queryDetections({ rule_id: 'MCP_TOOL_ENUMERATION' });
+      expect(total).toBe(1);
+      expect(detections[0].source_ip).toBe('10.10.20.30');
+      second.close();
     });
   });
 

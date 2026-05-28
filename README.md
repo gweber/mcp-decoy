@@ -285,6 +285,7 @@ npm run build
 - Top tools invoked (bar chart)
 - Top source IPs (bar chart)
 - MCP method breakdown (initialize / tools/list / tools/call)
+- Recent detections panel with severity, rule ID, source IP, confidence, and summary
 - Paginated, filterable access log table — filter by IP, tool, MCP method, or time range
 
 ## Security and Deployment Notes
@@ -308,7 +309,25 @@ LOG_RETENTION_DAYS=90 \
 npm start
 ```
 
-SQLite mode creates the database directory automatically, stores complete event JSON, and keeps indexes for time, IP, tool, and MCP method queries. Retention defaults to **90 days** and is applied on startup; `LOG_MAX_SIZE` still caps the maximum number of retained rows after each insert.
+SQLite mode creates the database directory automatically, stores complete event JSON, and keeps indexes for time, IP, tool, and MCP method queries. It also persists security detections in a `detections` table with indexes for time, rule ID, severity, and source IP. Retention defaults to **90 days** and is applied on startup; `LOG_MAX_SIZE` still caps the maximum number of retained log rows after each insert.
+
+## Detection Rules
+
+MCP Decoy turns selected MCP activity into deduplicated security findings. Detections are stored in SQLite, included in `/api/stats`, returned by `/api/detections`, and streamed to the dashboard over `/api/events` as `detection` events.
+
+Current deterministic rules:
+
+| Rule ID | Severity | Confidence | Trigger |
+|---|---:|---:|---|
+| `MCP_TOOL_ENUMERATION` | medium | high | Client calls `tools/list` |
+| `MCP_MULTI_TOOL_RECON` | high | high | Same source IP calls 3+ distinct tools within 5 minutes |
+| `MCP_UNKNOWN_TOOL_PROBE` | medium | medium | Client calls a tool name that is not exported by the decoy |
+| `MCP_SECRET_HUNTING_ARGS` | high | medium/high | Tool arguments contain secret-hunting terms such as `.env`, `password`, `secret`, `token`, `api_key`, or `credential` |
+| `MCP_DATASTORE_RECON` | high | high | Client calls PostgreSQL, Cassandra, or Elasticsearch decoy tools |
+| `MCP_SOURCE_CODE_RECON` | medium | high | Client calls GitHub, GitLab, Bitbucket, or Jenkins source/devops decoy tools |
+| `MCP_IDENTITY_RECON` | medium | high | Client calls Slack identity/collaboration decoy tools |
+
+Detections are deduplicated by rule, source IP, subject tool/method, and 5-minute time bucket to reduce alert spam. Treat detections as triage signals: correlate the source host/user with EDR, proxy, identity-provider, and SIEM logs before making incident-response decisions.
 
 ## Syslog Integration
 
@@ -406,7 +425,7 @@ TCP transport maintains a persistent connection and buffers messages during reco
 ## Testing
 
 ```bash
-# Run all tests (111 tests)
+# Run all tests (131 tests)
 npm test
 
 # Watch mode
@@ -422,7 +441,8 @@ Tests are in `test/` using Vitest 4 and Supertest:
 |---|---|---|
 | `test/tools.test.js` | Unit — all 38 tool dispatchers, schema validation, fake data shapes | ~70 |
 | `test/server.test.js` | Integration — HTTP endpoints, MCP protocol handshake, both transports | ~30 |
-| `test/store.test.js` | Unit — LogStore circular buffer, query filters, stats, timeline | ~11 |
+| `test/detections.test.js` | Unit — deterministic detection rules, secret-hunting terms, multi-tool recon | 9 |
+| `test/store.test.js` | Unit — LogStore backends, query filters, stats, timeline, detection persistence | ~30 |
 
 ## Deployment
 
@@ -483,6 +503,12 @@ curl 'http://localhost:3110/api/logs?from=2026-04-22T00:00:00Z&to=2026-04-22T23:
 
 # Aggregated statistics
 curl 'http://localhost:3110/api/stats'
+
+# Detections, paginated
+curl 'http://localhost:3110/api/detections?limit=50&offset=0'
+
+# Filter detections
+curl 'http://localhost:3110/api/detections?severity=high&rule_id=MCP_DATASTORE_RECON'
 
 # Timeline (requests per minute, last 60 min)
 curl 'http://localhost:3110/api/timeline?minutes=60'

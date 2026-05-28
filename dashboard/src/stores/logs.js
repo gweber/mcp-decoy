@@ -6,6 +6,7 @@ export const useLogsStore = defineStore('logs', () => {
   const stats = ref(null)
   const timeline = ref([])
   const tools = ref([])
+  const detections = ref([])
   const connected = ref(false)
 
   let eventSource = null
@@ -40,6 +41,28 @@ export const useLogsStore = defineStore('logs', () => {
     } catch (err) {
       console.error('[store] fetchLogs error:', err)
       return { total: 0, logs: [] }
+    }
+  }
+
+  async function fetchDetections(params = {}) {
+    try {
+      const query = new URLSearchParams()
+      if (params.limit !== undefined) query.set('limit', params.limit)
+      if (params.offset !== undefined) query.set('offset', params.offset)
+      if (params.severity) query.set('severity', params.severity)
+      if (params.rule_id) query.set('rule_id', params.rule_id)
+      if (params.source_ip) query.set('source_ip', params.source_ip)
+      if (params.from) query.set('from', params.from)
+      if (params.to) query.set('to', params.to)
+
+      const res = await fetch(`/api/detections?${query.toString()}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      detections.value = data.detections || []
+      return data
+    } catch (err) {
+      console.error('[store] fetchDetections error:', err)
+      return { total: 0, detections: [] }
     }
   }
 
@@ -94,6 +117,19 @@ export const useLogsStore = defineStore('logs', () => {
         }
       })
 
+      eventSource.addEventListener('detection', (e) => {
+        try {
+          const entry = JSON.parse(e.data)
+          detections.value.unshift(entry)
+          if (detections.value.length > 200) {
+            detections.value = detections.value.slice(0, 200)
+          }
+          fetchStats()
+        } catch (err) {
+          console.error('[store] SSE detection parse error:', err)
+        }
+      })
+
       eventSource.onopen = () => {
         connected.value = true
       }
@@ -126,9 +162,11 @@ export const useLogsStore = defineStore('logs', () => {
     stats,
     timeline,
     tools,
+    detections,
     connected,
     fetchStats,
     fetchLogs,
+    fetchDetections,
     fetchTimeline,
     fetchTools,
     startEventStream,

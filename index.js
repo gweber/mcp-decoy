@@ -184,6 +184,10 @@ app.get('/api/stats', (_req, res) => {
   res.json(store.stats());
 });
 
+app.get('/api/detections', (req, res) => {
+  res.json(store.queryDetections(req.query));
+});
+
 app.get('/api/timeline', (req, res) => {
   const minutes = Math.min(parseInt(req.query.minutes || '60', 10), 1440);
   res.json(store.timeline(minutes));
@@ -204,12 +208,17 @@ app.get('/api/events', (req, res) => {
   const onLog = (record) => {
     res.write(`event: log\ndata: ${JSON.stringify(record)}\n\n`);
   };
+  const onDetection = (record) => {
+    res.write(`event: detection\ndata: ${JSON.stringify(record)}\n\n`);
+  };
 
   store.on('log', onLog);
+  store.on('detection', onDetection);
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), 25_000);
 
   req.on('close', () => {
     store.off('log', onLog);
+    store.off('detection', onDetection);
     clearInterval(keepalive);
   });
 });

@@ -34,9 +34,9 @@
         color="--success"
       />
       <StatsCard
-        title="Errors"
-        :value="store.stats?.errors ?? 0"
-        sub="failed requests"
+        title="Detections"
+        :value="store.stats?.detections?.total ?? 0"
+        sub="security findings"
         color="--error"
       />
     </div>
@@ -46,6 +46,29 @@
       <ToolBarChart :top-tools="store.stats?.topTools ?? []" />
       <IpDoughnutChart :top-ips="store.stats?.topIps ?? []" />
       <TimelineChart :timeline="store.timeline" />
+    </div>
+
+    <!-- Recent Detections -->
+    <div class="recent-section">
+      <div class="section-header">
+        <h2 class="section-title">Recent Detections</h2>
+        <span class="section-hint">deduplicated 5-minute buckets</span>
+      </div>
+      <div class="detections-card">
+        <div v-if="recentDetections.length === 0" class="empty-state">
+          No detections yet. Suspicious MCP activity will appear here.
+        </div>
+        <div v-for="det in recentDetections" :key="det.id" class="detection-row">
+          <span class="severity-pill" :class="`severity-pill--${det.severity}`">{{ det.severity }}</span>
+          <div class="detection-main">
+            <div class="detection-title">{{ det.rule_id }}</div>
+            <div class="detection-summary">{{ det.summary }}</div>
+            <div class="detection-meta">
+              {{ relativeTime(det.time) }} · {{ det.source_ip || 'unknown IP' }} · {{ det.confidence }} confidence
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Recent Logs -->
@@ -84,6 +107,7 @@ const selectedLog = ref(null)
 const refreshing = ref(false)
 
 const recentLogs = computed(() => store.logs.slice(0, 20))
+const recentDetections = computed(() => store.detections.slice(0, 8))
 
 function openDetail(log) {
   selectedLog.value = log
@@ -115,6 +139,7 @@ async function refresh() {
   refreshing.value = true
   await Promise.all([
     store.fetchStats(),
+    store.fetchDetections({ limit: 8 }),
     store.fetchTimeline(60),
     store.fetchTools(),
   ])
@@ -124,6 +149,7 @@ async function refresh() {
 onMounted(async () => {
   await Promise.all([
     store.fetchStats(),
+    store.fetchDetections({ limit: 8 }),
     store.fetchTimeline(60),
     store.fetchTools(),
   ])
@@ -247,6 +273,77 @@ onUnmounted(() => {
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
+}
+
+.section-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.detections-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.empty-state {
+  padding: 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.detection-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.detection-row:last-child {
+  border-bottom: 0;
+}
+
+.severity-pill {
+  min-width: 64px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.severity-pill--high { background: rgba(239, 68, 68, 0.15); color: var(--error); }
+.severity-pill--medium { background: rgba(245, 158, 11, 0.15); color: var(--warn); }
+.severity-pill--low { background: rgba(59, 130, 246, 0.15); color: var(--primary); }
+
+.detection-main {
+  min-width: 0;
+}
+
+.detection-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.detection-summary {
+  color: var(--text);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.detection-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
 }
 
 .view-all-link {

@@ -329,6 +329,30 @@ describe('GET /api/stats', () => {
   });
 });
 
+describe('GET /api/detections', () => {
+  beforeEach(async () => {
+    await post(rpc('tools/list'));
+    await post(rpc('tools/call', { name: 'postgresql_list_databases', arguments: {} }));
+  });
+
+  it('returns total and detections array', async () => {
+    const res = await request(app).get('/api/detections');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('total');
+    expect(res.body.detections).toBeInstanceOf(Array);
+    expect(res.body.total).toBeGreaterThanOrEqual(2);
+  });
+
+  it('filters by severity and rule_id', async () => {
+    const high = await request(app).get('/api/detections?severity=high');
+    expect(high.body.detections.every(d => d.severity === 'high')).toBe(true);
+
+    const rule = await request(app).get('/api/detections?rule_id=MCP_DATASTORE_RECON');
+    expect(rule.body.total).toBe(1);
+    expect(rule.body.detections[0].rule_id).toBe('MCP_DATASTORE_RECON');
+  });
+});
+
 describe('GET /api/timeline', () => {
   it('returns 60 minute buckets by default', async () => {
     const res = await request(app).get('/api/timeline');
