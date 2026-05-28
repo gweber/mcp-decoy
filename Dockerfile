@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-bookworm-slim AS dashboard-build
+FROM node:24-bookworm-slim AS dashboard-build
 WORKDIR /app/dashboard
 COPY dashboard/package*.json ./
 RUN npm ci
 COPY dashboard/ ./
 RUN npm run build
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
