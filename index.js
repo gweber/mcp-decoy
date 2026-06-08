@@ -17,7 +17,11 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json());
 
-store.on('detection', detection => syslog.sendDetection(detection));
+const { sendWebhook } = require('./store');
+store.on('detection', detection => {
+  syslog.sendDetection(detection);
+  sendWebhook(detection);
+});
 
 // Remove the Date header — Node.js adds it automatically and it changes every
 // second, making byte-identical responses look "distinct" to determinism probes.

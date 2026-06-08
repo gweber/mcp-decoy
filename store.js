@@ -384,7 +384,31 @@ class LogStore extends EventEmitter {
 
 const store = new LogStore(envOptions());
 
+/**
+ * Send a detection object as a JSON POST to WEBHOOK_URL.
+ * Uses a short timeout (~2s) via AbortController and never throws.
+ */
+function sendWebhook(detection) {
+  const url = process.env.WEBHOOK_URL;
+  if (!url) return;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(detection),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
+  } catch {
+    // Silently ignore — never crash the server
+  }
+}
+
 module.exports = store;
 module.exports.LogStore = LogStore;
 module.exports.DEFAULT_RETENTION_DAYS = DEFAULT_RETENTION_DAYS;
 module.exports.envOptions = envOptions;
+module.exports.sendWebhook = sendWebhook;

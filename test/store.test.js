@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -271,5 +271,39 @@ describe('LogStore', () => {
       expect(store.size).toBe(0);
       expect(store.stats().total).toBe(0);
     });
+  });
+});
+
+describe('sendWebhook()', () => {
+  const origFetch = global.fetch;
+  let origUrl;
+
+  beforeEach(() => { origUrl = process.env.WEBHOOK_URL; });
+  afterEach(() => {
+    global.fetch = origFetch;
+    if (origUrl === undefined) delete process.env.WEBHOOK_URL;
+    else process.env.WEBHOOK_URL = origUrl;
+  });
+
+  it('posts the detection JSON to WEBHOOK_URL when set', () => {
+    process.env.WEBHOOK_URL = 'http://example.com/webhook';
+    let captured = null;
+    global.fetch = (url, opts) => { captured = JSON.parse(opts.body); return Promise.resolve(new Response()); };
+    LogStore.sendWebhook({ id: 'x', rule_id: 'ENUM' });
+    expect(captured).toEqual({ id: 'x', rule_id: 'ENUM' });
+  });
+
+  it('does nothing when WEBHOOK_URL is unset', () => {
+    delete process.env.WEBHOOK_URL;
+    let called = false;
+    global.fetch = () => { called = true; return Promise.resolve(new Response()); };
+    LogStore.sendWebhook({ id: 'x' });
+    expect(called).toBe(false);
+  });
+
+  it('does not throw when the POST fails', () => {
+    process.env.WEBHOOK_URL = 'http://example.com/webhook';
+    global.fetch = () => { throw new Error('network down'); };
+    expect(() => LogStore.sendWebhook({ id: 'x' })).not.toThrow();
   });
 });
